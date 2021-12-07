@@ -108,85 +108,62 @@ struct SyscallArg {
 }
 
 pub fn parse(source: &str) -> Result<Vec<Instruction>, BrainfuckError> {
-    let is_op = |c| matches!(c, '>' | '<' | '+' | '-' | '.' | ',');
-    let ops: Vec<char> = source
-        .chars()
-        .enumerate()
-        .filter_map(|(i, c)| match c {
-            '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']' | '%' => Some(c),
-            '0'..='9' => {
-                let mut idx = i + 1;
-                while matches!(source.chars().nth(idx).unwrap_or('\0'), '0'..='9') {
-                    idx += 1;
-                }
-                if is_op(source.chars().nth(idx).unwrap_or('\0')) {
-                    Some(c)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        })
-        .collect();
+    let chars: Vec<char> = source.chars().collect();
+    let mut ops: Vec<char> = Vec::with_capacity(source.len());
     let mut idx = 0;
-    let mut instructions = Vec::with_capacity(ops.len());
-    // TODO: Reduce code duplication here
-    while let Some(op) = ops.get(idx) {
-        let instruction = match op {
+    while let Some(c) = chars.get(idx) {
+        let op = match c {
+            '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']' | '%' => Some(*c),
             '0'..='9' => {
-                let mut num = op.to_digit(10).unwrap();
-                while matches!(ops[idx + 1], '0'..='9') {
+                let mut num = c.to_digit(10).unwrap();
+                while matches!(chars.get(idx + 1).unwrap_or(&'\0'), '0'..='9') {
                     num *= 10;
-                    num += ops[idx + 1].to_digit(10).unwrap();
+                    num += chars[idx + 1].to_digit(10).unwrap();
                     idx += 1;
                 }
 
                 if num == 0 {
                     None
-                } else if num == 1 {
-                    idx += 1;
-                    let ins = match ops[idx] {
-                        '>' => Instruction::Right,
-                        '<' => Instruction::Left,
-                        '+' => Instruction::Inc,
-                        '-' => Instruction::Dec,
-                        '.' => Instruction::Out,
-                        ',' => Instruction::In,
-                        _ => unreachable!("I wrote some shit code i guess"),
-                    };
-                    Some(ins)
                 } else {
                     idx += 1;
-                    let ins = match ops[idx] {
-                        '>' => Instruction::Right,
-                        '<' => Instruction::Left,
-                        '+' => Instruction::Inc,
-                        '-' => Instruction::Dec,
-                        '.' => Instruction::Out,
-                        ',' => Instruction::In,
-                        _ => unreachable!("I wrote some shit code i guess"),
-                    };
-                    instructions.append(&mut vec![ins; num as usize - 1]);
-                    Some(ins)
+                    chars
+                        .get(idx)
+                        .copied()
+                        .map(|chr| {
+                            if matches! {chr, '>' | '<' | '+' | '-' | '.' | ','} {
+                                if num > 1 {
+                                    ops.append(&mut vec![chr; num as usize - 1]);
+                                };
+                                Some(chr)
+                            } else {
+                                None
+                            }
+                        })
+                        .flatten()
                 }
             }
-            '>' => Some(Instruction::Right),
-            '<' => Some(Instruction::Left),
-            '+' => Some(Instruction::Inc),
-            '-' => Some(Instruction::Dec),
-            '.' => Some(Instruction::Out),
-            ',' => Some(Instruction::In),
-            '%' => Some(Instruction::Syscall),
-            '[' => Some(find_matching_bracket(idx + 1, &ops, false).map(Instruction::Open)?),
-            ']' => Some(find_matching_bracket(idx - 1, &ops, true).map(Instruction::Close)?),
-            _ => unreachable!("Everything noop should be filtered above"),
+            _ => None,
         };
-        if let Some(ins) = instruction {
-            instructions.push(ins);
+        if let Some(chr) = op {
+            ops.push(chr);
         }
         idx += 1;
     }
-    Ok(instructions)
+    ops.iter()
+        .enumerate()
+        .map(|(i, op)| match op {
+            '>' => Ok(Instruction::Right),
+            '<' => Ok(Instruction::Left),
+            '+' => Ok(Instruction::Inc),
+            '-' => Ok(Instruction::Dec),
+            '.' => Ok(Instruction::Out),
+            ',' => Ok(Instruction::In),
+            '%' => Ok(Instruction::Syscall),
+            '[' => find_matching_bracket(i + 1, &ops, false).map(Instruction::Open),
+            ']' => find_matching_bracket(i - 1, &ops, true).map(Instruction::Close),
+            _ => unreachable!("Everything noop should be filtered above"),
+        })
+        .collect()
 }
 
 flags! {
