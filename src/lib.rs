@@ -1,5 +1,9 @@
 use flagset::{flags, FlagSet};
+use syscalls::{syscall0, syscall1, syscall2, syscall3, syscall4, syscall5, syscall6};
 use thiserror::Error;
+
+mod syscall;
+use syscall::SyscallType;
 
 #[macro_export]
 macro_rules! include_base_str {
@@ -16,6 +20,7 @@ pub enum Instruction {
     Dec,
     Out,
     In,
+    Syscall,
     Open(usize),
     Close(usize),
 }
@@ -30,6 +35,10 @@ pub enum BrainfuckError {
     MemoryOverflow,
     #[error("Can't output invalid UTF8")]
     InvalidCharacter,
+    #[error("Invalid argument type for syscall")]
+    InvalidArgumentType,
+    #[error("Syscall failed")]
+    SyscallFailed(#[from] syscalls::Errno),
 }
 
 fn find_matching_bracket(
@@ -67,10 +76,39 @@ fn find_matching_bracket(
     }
 }
 
+#[repr(u8)]
+#[derive(Debug)]
+enum ArgumentType {
+    Value,
+    Pointer,
+    CellPointer,
+}
+
+impl ArgumentType {
+    fn from(v: usize) -> Result<Self, BrainfuckError> {
+        if v == 0 {
+            Ok(Self::Value)
+        } else if v == 1 {
+            Ok(Self::Pointer)
+        } else if v == 2 {
+            Ok(Self::CellPointer)
+        } else {
+            Err(BrainfuckError::InvalidArgumentType)
+        }
+    }
+}
+
+#[derive(Debug)]
+struct SyscallArg {
+    arg_type: ArgumentType,
+    length: usize,
+    contents: usize,
+}
+
 fn parse(source: &str) -> Result<Vec<Instruction>, BrainfuckError> {
     let ops: Vec<char> = source
         .chars()
-        .filter(|c| matches!(*c, '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']'))
+        .filter(|c| matches!(*c, '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']' | '%'))
         .collect();
     println!("Source: {}", ops.iter().collect::<String>());
     let ops = ops
@@ -83,6 +121,7 @@ fn parse(source: &str) -> Result<Vec<Instruction>, BrainfuckError> {
             '-' => Ok(Instruction::Dec),
             '.' => Ok(Instruction::Out),
             ',' => Ok(Instruction::In),
+            '%' => Ok(Instruction::Syscall),
             '[' => find_matching_bracket(i + 1, &ops, false).map(Instruction::Open),
             ']' => find_matching_bracket(i - 1, &ops, true).map(Instruction::Close),
             _ => unreachable!("Everything noop should be filtered above"),
@@ -168,6 +207,96 @@ pub fn run(
                 );
             }
             Instruction::In => memory[memory_counter] = input_iter.next().unwrap_or('\0') as u8,
+            Instruction::Syscall => {
+                let mut offset = 1;
+                let syscall: SyscallType = if memory[memory_counter] == 255 {
+                    offset += 1;
+                    memory[memory_counter] as u16 + memory[memory_counter + 1] as u16
+                } else {
+                    memory[memory_counter] as u16
+                }
+                .into();
+                let argc = memory[memory_counter + offset];
+                offset += 1;
+                let mut args = Vec::with_capacity(argc as usize);
+                for _ in 0..argc {
+                    let mut arg = SyscallArg {
+                        arg_type: ArgumentType::from(memory[memory_counter + offset] as usize)?,
+                        length: memory[memory_counter + 1 + offset] as usize,
+                        contents: 0,
+                    };
+                    arg.contents = match arg.arg_type {
+                        ArgumentType::Value => {
+                            let c = &memory[memory_counter + 2 + offset
+                                ..memory_counter + 2 + offset + arg.length];
+                            offset += arg.length + 2;
+                            c[0] as usize
+                        }
+                        ArgumentType::Pointer => {
+                            let p = unsafe {
+                                memory
+                                    .as_ptr()
+                                    .offset((memory_counter + 2 + offset) as isize)
+                            };
+                            offset += 2 + arg.length;
+                            p as usize
+                        }
+                        ArgumentType::CellPointer => {
+                            let p = memory[memory_counter + 2 + offset] as usize;
+                            offset += 2;
+                            memory[p] as usize
+                        }
+                    };
+                    args.push(arg);
+                }
+
+                println!("{} : {}->{:?}", syscall, argc, args);
+
+                let res = unsafe {
+                    match argc {
+                        0 => syscall0((syscall as i32).into()),
+                        1 => syscall1((syscall as i32).into(), args[0].contents as usize),
+                        2 => syscall2(
+                            (syscall as i32).into(),
+                            args[0].contents as usize,
+                            args[1].contents as usize,
+                        ),
+                        3 => syscall3(
+                            (syscall as i32).into(),
+                            args[0].contents as usize,
+                            args[1].contents as usize,
+                            args[2].contents as usize,
+                        ),
+                        4 => syscall4(
+                            (syscall as i32).into(),
+                            args[0].contents as usize,
+                            args[1].contents as usize,
+                            args[2].contents as usize,
+                            args[3].contents as usize,
+                        ),
+                        5 => syscall5(
+                            (syscall as i32).into(),
+                            args[0].contents as usize,
+                            args[1].contents as usize,
+                            args[2].contents as usize,
+                            args[3].contents as usize,
+                            args[4].contents as usize,
+                        ),
+                        6 => syscall6(
+                            (syscall as i32).into(),
+                            args[0].contents as usize,
+                            args[1].contents as usize,
+                            args[2].contents as usize,
+                            args[3].contents as usize,
+                            args[4].contents as usize,
+                            args[5].contents as usize,
+                        ),
+                        _ => unimplemented!("fuck you"),
+                    }
+                }
+                .unwrap();
+                memory[memory_counter] = res as u8;
+            }
             Instruction::Open(i) => {
                 if memory[memory_counter] == 0 {
                     instruction_couter = *i;
@@ -229,5 +358,15 @@ mod tests {
                 Instruction::Close(1)
             ]
         );
+    }
+
+    #[test]
+    fn exit_syscall() {
+        run(
+            include_base_str!("bf/syscall_hello.bf"),
+            "",
+            Flags::AllowAll,
+        )
+        .unwrap();
     }
 }

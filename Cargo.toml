@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 flagset = "0.4.2"
+syscalls = "0.5.0"
 thiserror = "1.0.30"
