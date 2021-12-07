@@ -299,11 +299,14 @@ pub fn run(
                             offset += 2 + arg.length;
                             p as usize
                         }
-                        // TODO: Correct implementation of CellPointer
                         ArgumentType::CellPointer => {
-                            let p = memory[memory_counter + 2 + offset] as usize;
-                            offset += 2;
-                            memory[p] as usize
+                            let p = unsafe {
+                                memory
+                                    .as_ptr()
+                                    .offset(memory[memory_counter + 2 + offset] as isize)
+                            };
+                            offset += 2 + arg.length;
+                            p as usize
                         }
                     };
                     args.push(arg);
