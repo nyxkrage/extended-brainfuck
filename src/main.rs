@@ -1,5 +1,7 @@
 use std::env::args;
+use std::io::stdout;
 use std::io::Read;
+use std::io::Write;
 
 use exbf::parse;
 use exbf::run;
@@ -30,5 +32,7 @@ fn main() {
         };
         s
     };
-    println!("{}", run(&source, &input, Flags::AllowAll).unwrap());
+    let output = run(&source, &input, Flags::AllowAll).unwrap();
+    print!("{}", output);
+    stdout().flush().unwrap();
 }
