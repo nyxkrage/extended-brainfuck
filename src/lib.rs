@@ -105,7 +105,7 @@ struct SyscallArg {
     contents: usize,
 }
 
-fn parse(source: &str) -> Result<Vec<Instruction>, BrainfuckError> {
+pub fn parse(source: &str) -> Result<Vec<Instruction>, BrainfuckError> {
     let ops: Vec<char> = source
         .chars()
         .filter(|c| matches!(*c, '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']' | '%'))
