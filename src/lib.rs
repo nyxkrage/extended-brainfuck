@@ -110,7 +110,6 @@ pub fn parse(source: &str) -> Result<Vec<Instruction>, BrainfuckError> {
         .chars()
         .filter(|c| matches!(*c, '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']' | '%'))
         .collect();
-    println!("Source: {}", ops.iter().collect::<String>());
     let ops = ops
         .iter()
         .enumerate()
@@ -126,9 +125,7 @@ pub fn parse(source: &str) -> Result<Vec<Instruction>, BrainfuckError> {
             ']' => find_matching_bracket(i - 1, &ops, true).map(Instruction::Close),
             _ => unreachable!("Everything noop should be filtered above"),
         })
-        .collect();
-    println!("{:?}", ops);
-    ops
+        .collect()
 }
 
 flags! {
@@ -249,8 +246,6 @@ pub fn run(
                     };
                     args.push(arg);
                 }
-
-                println!("{} : {}->{:?}", syscall, argc, args);
 
                 let res = unsafe {
                     match argc {
